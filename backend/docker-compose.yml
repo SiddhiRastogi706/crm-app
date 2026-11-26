@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pulse-crm-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: pulse_crm
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d pulse_crm']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-crm-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse-crm-api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '5000:5000'
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/pulse_crm?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: pulse_crm_jwt_access_secret_super_secure_key
+      JWT_REFRESH_SECRET: pulse_crm_jwt_refresh_secret_super_secure_key
+      FRONTEND_URL: http://localhost:5173
+    command: >
+      sh -c "npx prisma migrate deploy && npm run prisma:seed && node dist/server.js"
+
+volumes:
+  postgres_data:
+  redis_data:

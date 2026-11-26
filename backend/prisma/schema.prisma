@@ -1,0 +1,462 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SALES_REP
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ContactStatus {
+  LEAD
+  ACTIVE
+  INACTIVE
+  CUSTOMER
+}
+
+enum ContactSource {
+  WEBSITE
+  REFERRAL
+  LINKEDIN
+  OUTBOUND
+  CONFERENCE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DISQUALIFIED
+}
+
+enum LeadSource {
+  ORGANIC
+  REFERRAL
+  LINKEDIN
+  ADWORDS
+  OUTBOUND
+}
+
+enum DealStage {
+  NEW
+  CONTACTED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum DealPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  NOTE
+  STATUS_CHANGE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+}
+
+enum AudienceSegment {
+  ALL_LEADS
+  HOT_LEADS
+  EXISTING_CUSTOMERS
+  INACTIVE_30D
+}
+
+enum AutomationTrigger {
+  LEAD_CREATED
+  DEAL_WON
+  TICKET_CREATED
+  DEAL_STAGE_CHANGED
+}
+
+enum ConditionOperator {
+  EQUALS
+  GREATER_THAN
+  CONTAINS
+}
+
+enum AutomationAction {
+  ASSIGN_OWNER
+  CREATE_TASK
+  SEND_EMAIL
+}
+
+enum NotificationType {
+  DEAL
+  LEAD
+  TASK
+  TICKET
+  SYSTEM
+}
+
+model User {
+  id                   String        @id @default(uuid())
+  name                 String
+  email                String        @unique
+  password             String
+  role                 Role          @default(SALES_REP)
+  avatar               String?
+  status               UserStatus    @default(ACTIVE)
+  failedLoginAttempts  Int           @default(0)
+  lockoutUntil         DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  ownedContacts        Contact[]     @relation("ContactOwner")
+  ownedLeads           Lead[]        @relation("LeadOwner")
+  ownedDeals           Deal[]        @relation("DealOwner")
+  assignedTasks        Task[]        @relation("TaskAssignee")
+  assignedTickets      Ticket[]      @relation("TicketAssignee")
+  ticketComments       TicketComment[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  activities           Activity[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+model Company {
+  id         String    @id @default(uuid())
+  name       String    @unique
+  domain     String?
+  industry   String?
+  size       String?
+  contacts   Contact[]
+  deals      Deal[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Contact {
+  id          String        @id @default(uuid())
+  name        String
+  email       String
+  phone       String?
+  company     String
+  companyId   String?
+  companyRef  Company?      @relation(fields: [companyId], references: [id])
+  title       String?
+  status      ContactStatus @default(LEAD)
+  source      ContactSource @default(WEBSITE)
+  ownerId     String?
+  owner       User?         @relation("ContactOwner", fields: [ownerId], references: [id])
+  ownerName   String?
+  value       Float         @default(0)
+  tags        String[]
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  deals       Deal[]
+  tasks       Task[]
+  activities  Activity[]
+  tickets     Ticket[]
+
+  @@index([email])
+  @@index([status])
+  @@index([ownerId])
+  @@index([deletedAt])
+}
+
+model Lead {
+  id                  String     @id @default(uuid())
+  name                String
+  email               String
+  phone               String?
+  company             String
+  title               String?
+  status              LeadStatus @default(NEW)
+  source              LeadSource @default(ORGANIC)
+  score               Int        @default(0)
+  ownerId             String?
+  owner               User?      @relation("LeadOwner", fields: [ownerId], references: [id])
+  ownerName           String?
+  estimatedValue      Float      @default(0)
+  notes               String?
+  convertedAt         DateTime?
+  convertedContactId  String?
+  convertedDealId     String?
+  deletedAt           DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([ownerId])
+  @@index([deletedAt])
+}
+
+model Deal {
+  id                 String           @id @default(uuid())
+  title              String
+  contactId          String?
+  contact            Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactName        String?
+  company            String
+  companyId          String?
+  companyRef         Company?         @relation(fields: [companyId], references: [id])
+  value              Float            @default(0)
+  stage              DealStage        @default(NEW)
+  probability        Int              @default(20)
+  expectedCloseDate  DateTime?
+  ownerId            String?
+  owner              User?            @relation("DealOwner", fields: [ownerId], references: [id])
+  ownerName          String?
+  priority           DealPriority     @default(MEDIUM)
+  lostReason         String?
+  notes              String?
+  deletedAt          DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  stageHistory       DealStageHistory[]
+  tasks              Task[]
+  activities         Activity[]
+
+  @@index([stage])
+  @@index([ownerId])
+  @@index([expectedCloseDate])
+  @@index([deletedAt])
+}
+
+model DealStageHistory {
+  id           String     @id @default(uuid())
+  dealId       String
+  deal         Deal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromStage    DealStage?
+  toStage      DealStage
+  changedById  String?
+  durationDays Int?
+  createdAt    DateTime   @default(now())
+
+  @@index([dealId])
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?
+  dueDate        DateTime
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(PENDING)
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactName    String?
+  dealId         String?
+  deal           Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  assignedToId   String?
+  assignedTo     User?        @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  assignedToName String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([dueDate])
+  @@index([status])
+  @@index([assignedToId])
+}
+
+model Activity {
+  id              String       @id @default(uuid())
+  type            ActivityType
+  contactId       String?
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactName     String?
+  dealId          String?
+  deal            Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  title           String
+  description     String
+  performedBy     String
+  performedById   String?
+  user            User?        @relation(fields: [performedById], references: [id])
+  date            DateTime     @default(now())
+  durationMinutes Int?
+  outcome         String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([contactId])
+  @@index([dealId])
+  @@index([performedById])
+  @@index([date])
+}
+
+model Ticket {
+  id             String          @id @default(uuid())
+  ticketNumber   String          @unique
+  subject        String
+  description    String
+  contactId      String?
+  contact        Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactName    String?
+  company        String
+  priority       TicketPriority  @default(MEDIUM)
+  status         TicketStatus    @default(OPEN)
+  assignedToId   String?
+  assignedTo     User?           @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  assignedToName String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  comments       TicketComment[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([assignedToId])
+}
+
+model TicketComment {
+  id           String   @id @default(uuid())
+  ticketId     String
+  ticket       Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId     String?
+  author       User?    @relation(fields: [authorId], references: [id])
+  authorName   String
+  authorAvatar String?
+  content      String
+  isInternal   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model Segment {
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  criteria    String
+  campaigns   Campaign[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Campaign {
+  id           String          @id @default(uuid())
+  name         String
+  subject      String
+  status       CampaignStatus  @default(DRAFT)
+  segment      AudienceSegment @default(ALL_LEADS)
+  segmentId    String?
+  segmentRef   Segment?        @relation(fields: [segmentId], references: [id])
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  sentCount    Int             @default(0)
+  openedCount  Int             @default(0)
+  clickedCount Int             @default(0)
+  bouncedCount Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model AutomationRule {
+  id                String             @id @default(uuid())
+  name              String
+  trigger           AutomationTrigger
+  conditionField    String
+  conditionOperator ConditionOperator
+  conditionValue    String
+  actionType        AutomationAction
+  actionTarget      String
+  actionPayload     String?
+  enabled           Boolean            @default(true)
+  executionCount    Int                @default(0)
+  lastExecutedAt    DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String?
+  user      User?            @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM)
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
